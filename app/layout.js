@@ -22,8 +22,8 @@ export const viewport = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
-      <body className={outfit.className}>{children}</body>
+    <html lang="en" suppressHydrationWarning={true}>
+      <body className={outfit.className} suppressHydrationWarning={true}>{children}</body>
     </html>
   );
 }
