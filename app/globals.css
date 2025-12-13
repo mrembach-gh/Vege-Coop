@@ -1,0 +1,51 @@
+:root {
+  --background: #ffffff;
+  --foreground: #000000;
+
+  --border-color: #000000;
+  --border-width: 2px;
+
+  /* Sketch-like feel */
+  --sketch-shadow: 2px 2px 0px rgba(0, 0, 0, 0.1);
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: 'Outfit', sans-serif;
+  /* Or 'Architects Daughter' if we had it, but Outfit is clean enough */
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Sketch Box Utility */
+.sketch-box {
+  border: var(--border-width) solid var(--border-color);
+  background: white;
+  border-radius: 4px;
+  /* Slight rounded or sharp 255/15/225 randomness? Keep simple for now */
+}
+
+/* Typography */
+h1,
+h2,
+h3 {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* Buttons */
+.sketch-button {
+  border: var(--border-width) solid var(--border-color);
+  background: white;
+  color: black;
+  font-weight: bold;
+  transition: all 0.1s;
+}
+
+.sketch-button:active {
+  transform: translate(1px, 1px);
+}
