@@ -1,30 +1,35 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, CornerDownLeft } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Plus, Mic, MicOff, Send, X, Apple, Carrot, Package } from 'lucide-react';
+import styles from './CommandInput.module.css';
 import { parseCommand } from '../utils/commandParser';
 
 export default function CommandInput({ onCommand, lastResponse, counts, kitty }) {
-    const [input, setInput] = useState('');
+    const [inputValue, setInputValue] = useState('');
+    const [isInputVisible, setIsInputVisible] = useState(false);
     const [isListening, setIsListening] = useState(false);
-    const recognitionRef = useRef(null);
-    // Debug: Trace renders
-    console.log(`[CommandInput Render] Counts: ${counts?.vegetable}/${counts?.fruit}/${counts?.other}`);
 
+    const inputRef = useRef(null);
+    const recognitionRef = useRef(null);
     const onCommandRef = useRef(onCommand);
 
-    // Ensure Ref is always fresh
+    const safeCounts = counts || { vegetable: 0, fruit: 0, other: 0 };
+    const totalItems = (safeCounts.vegetable || 0) + (safeCounts.fruit || 0) + (safeCounts.other || 0);
+
+    // Sync ref
     useEffect(() => {
         onCommandRef.current = onCommand;
-        console.log("[CommandInput Effect] Updated onCommandRef");
     }, [onCommand]);
 
-    const handleCommand = (cmdText) => {
-        const result = parseCommand(cmdText);
-        onCommand(result, cmdText);
-        setInput('');
-    };
+    // Focus input on visible
+    useEffect(() => {
+        if (isInputVisible && inputRef.current) {
+            inputRef.current.focus();
+        }
+    }, [isInputVisible]);
 
+    // Speech Recognition Setup
     useEffect(() => {
         if (typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition)) {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -36,16 +41,16 @@ export default function CommandInput({ onCommand, lastResponse, counts, kitty })
             recognitionRef.current.onresult = (event) => {
                 const transcript = event.results[0][0].transcript;
                 console.log(`[Voice Result] '${transcript}'`);
+                setInputValue(transcript);
 
-                setInput(transcript);
-
-                // Parse and call Ref directly
                 const result = parseCommand(transcript);
                 if (onCommandRef.current) {
-                    console.log("[Voice] Calling onCommandRef...");
                     onCommandRef.current(result, transcript);
-                } else {
-                    console.error("[Voice] onCommandRef is null!");
+                    // Do not close input immediately if user wants to speak more?
+                    // Actually, for "Speak" button flow, maybe we assume one command.
+                    // But if it's the main mic button, maybe we don't even open the input?
+                    // Let's just process it.
+                    setInputValue('');
                 }
                 setIsListening(false);
             };
@@ -66,7 +71,6 @@ export default function CommandInput({ onCommand, lastResponse, counts, kitty })
             alert('Speech recognition is not supported in this browser.');
             return;
         }
-
         if (isListening) {
             recognitionRef.current.stop();
             setIsListening(false);
@@ -83,69 +87,96 @@ export default function CommandInput({ onCommand, lastResponse, counts, kitty })
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        if (input.trim()) {
-            handleCommand(input);
-        }
+        if (!inputValue.trim()) return;
+
+        const result = parseCommand(inputValue);
+        onCommand(result, inputValue);
+        setInputValue('');
+        setIsInputVisible(false); // Close after submit
     };
 
-    const safeCounts = counts || { vegetable: 0, fruit: 0, other: 0 };
-    const totalItems = (safeCounts.vegetable || 0) + (safeCounts.fruit || 0) + (safeCounts.other || 0);
-
     return (
-        <div className="border-t-2 border-black bg-white p-4 pb-8">
-            {/* Top Row: Totals & Speak Button */}
-            <div className="flex justify-between items-start mb-6">
-                {/* Left: Counts */}
-                <div className="space-y-1 font-bold text-lg">
-                    <div>Fruit {safeCounts.fruit || 0}</div>
-                    <div>Veggies {safeCounts.vegetable || 0}</div>
-                    <div>Other {safeCounts.other || 0}</div>
-                    <div className="mt-2 text-xl">Total {totalItems}</div>
-                </div>
-
-                {/* Right: Kitty & Speak */}
-                <div className="flex flex-col items-center gap-4">
-                    <div className="text-xl font-bold">
-                        Kitty {Math.round(kitty)}
+        <div className={styles.footerContainer}>
+            {!isInputVisible && (
+                <div className={styles.fabContainer}>
+                    <div className={styles.statsBar}>
+                        <div className={styles.statItem}>
+                            <Apple size={14} /> <span className={styles.statLabel}>{safeCounts.fruit || 0}</span>
+                        </div>
+                        <div className={styles.statItem}>
+                            <Carrot size={14} /> <span className={styles.statLabel}>{safeCounts.vegetable || 0}</span>
+                        </div>
+                        <div className={styles.statItem}>
+                            <Package size={14} /> <span className={styles.statLabel}>{safeCounts.other || 0}</span>
+                        </div>
+                        <div style={{ width: 1, height: 12, background: '#444', margin: '0 4px' }}></div>
+                        <div className={styles.statItem}>
+                            <span>${Math.round(kitty)}</span>
+                        </div>
                     </div>
-                    <button
-                        onClick={toggleListening}
-                        className={`w-20 h-20 rounded-full border-2 border-black flex items-center justify-center transition-all ${isListening ? 'bg-red-500 text-white' : 'bg-white hover:bg-gray-100 text-black'
-                            }`}
-                    >
-                        <div className="flex flex-col items-center">
-                            {isListening ? <MicOff size={32} /> : <Mic size={32} />}
-                            <span className="text-xs font-bold mt-1">Speak</span>
-                        </div>
-                    </button>
-                    {/* Last Response Feedback - positioned carefully */}
-                    {lastResponse && (
-                        <div className="absolute bottom-24 right-4 bg-black text-white px-3 py-1 rounded text-xs animate-fade-in max-w-xs truncate">
-                            {lastResponse}
-                        </div>
-                    )}
-                </div>
-            </div>
 
-            {/* Bottom Row: Input */}
-            <form onSubmit={handleSubmit} className="flex gap-4">
-                <div className="flex-1 relative">
-                    <input
-                        type="text"
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        className="w-full border-2 border-black p-3 text-lg font-bold focus:outline-none focus:bg-yellow-50"
-                        placeholder=""
-                    />
-                    {/* Underline effect handled by border */}
+                    <div className={styles.actionsRight}>
+                        <button
+                            className={`${styles.micButton} ${isListening ? styles.listening : ''}`}
+                            onClick={toggleListening}
+                            title="Speak Command"
+                        >
+                            {isListening ? <MicOff size={24} /> : <Mic size={24} />}
+                        </button>
+
+                        <button
+                            className={styles.addButton}
+                            onClick={() => setIsInputVisible(true)}
+                        >
+                            <Plus size={24} /> ADD
+                        </button>
+                    </div>
                 </div>
-                <button
-                    type="submit"
-                    className="border-2 border-black px-6 py-2 font-bold text-lg hover:bg-gray-100 flex items-center gap-2"
-                >
-                    ENTER <CornerDownLeft size={20} />
-                </button>
-            </form>
+            )}
+
+            {isInputVisible && (
+                <div className={styles.inputWrapper}>
+                    <div className={styles.controls}>
+                        <div style={{ fontSize: '0.875rem', fontWeight: 600, color: '#fff' }}>
+                            Add Item
+                        </div>
+                        <button onClick={() => setIsInputVisible(false)} style={{ color: '#aaa' }}>
+                            <X size={24} />
+                        </button>
+                    </div>
+
+                    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                        <input
+                            ref={inputRef}
+                            type="text"
+                            value={inputValue}
+                            onChange={(e) => setInputValue(e.target.value)}
+                            className={styles.commandInput}
+                            placeholder="e.g. Milk, Carrots..."
+                        />
+
+                        <div className="flex justify-between items-center">
+                            <button
+                                type="button"
+                                onClick={toggleListening}
+                                style={{ color: isListening ? '#f44336' : '#aaa' }}
+                            >
+                                {isListening ? <MicOff size={24} /> : <Mic size={24} />}
+                            </button>
+
+                            {/* Last Response Feedback */}
+                            <span className={styles.lastResponse}>{lastResponse}</span>
+
+                            <button
+                                type="submit"
+                                style={{ color: 'var(--accent-blue)' }}
+                            >
+                                <Send size={24} />
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            )}
         </div>
     );
 }

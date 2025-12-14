@@ -1,0 +1,84 @@
+.container {
+    flex: 1;
+    overflow-y: auto;
+    background-color: var(--bg-primary);
+    padding-bottom: 80px;
+    /* Space for FAB/Input */
+}
+
+.list {
+    padding: 0;
+    margin: 0;
+}
+
+.item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    /* border-bottom: 1px solid var(--border-color); /* Separator optional, not seen in screenshot for all items? */
+    background-color: transparent;
+    color: var(--text-primary);
+    transition: background 0.2s;
+}
+
+.item:active {
+    background-color: var(--bg-secondary);
+}
+
+.leftSection {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.checkbox {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid var(--accent-green);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.checkbox.checked {
+    background-color: var(--accent-green);
+    border-color: var(--accent-green);
+}
+
+.checkIcon {
+    color: var(--bg-primary);
+    width: 14px;
+    height: 14px;
+}
+
+.itemName {
+    font-size: 1rem;
+    font-weight: 500;
+    text-transform: capitalize;
+}
+
+.iconSection {
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+}
+
+.categoryIcon {
+    width: 20px;
+    height: 20px;
+    opacity: 0.7;
+}
+
+.sectionHeader {
+    padding: 1rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    display: flex;
+    justify-content: center;
+    cursor: pointer;
+    user-select: none;
+}
