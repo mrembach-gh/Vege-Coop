@@ -16,21 +16,18 @@ export default function CommandInput({ onCommand, lastResponse, counts, kitty })
     const isListeningRef = useRef(false);
 
     const safeCounts = counts || { vegetable: 0, fruit: 0, other: 0 };
-    const totalItems = (safeCounts.vegetable || 0) + (safeCounts.fruit || 0) + (safeCounts.other || 0);
 
-    // Sync refs
-    useEffect(() => {
-        onCommandRef.current = onCommand;
-    }, [onCommand]);
+    useEffect(() => { onCommandRef.current = onCommand; }, [onCommand]);
+    useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
 
+    // Focus input when panel opens
     useEffect(() => {
-        isListeningRef.current = isListening;
-    }, [isListening]);
+        if (isInputVisible && inputRef.current) inputRef.current.focus();
+    }, [isInputVisible]);
 
-    // Speak response and pause mic while speaking
-    useEffect(() => {
-        if (!lastResponse || lastResponse === 'Welcome to Vege Coop' || lastResponse === 'Processing...') return;
-        if (typeof window === 'undefined' || !window.speechSynthesis) return;
+    // Speak text directly from user gesture context — iOS requires this
+    const speak = (text) => {
+        if (typeof window === 'undefined' || !window.speechSynthesis || !text) return;
 
         const wasListening = isListeningRef.current;
         if (wasListening && recognitionRef.current) {
@@ -39,60 +36,48 @@ export default function CommandInput({ onCommand, lastResponse, counts, kitty })
         }
 
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(lastResponse);
+        const utterance = new SpeechSynthesisUtterance(text);
         utterance.onend = () => {
             if (wasListening && recognitionRef.current) {
                 try {
                     recognitionRef.current.start();
                     setIsListening(true);
-                } catch (e) { /* recognition may already be running */ }
+                } catch (e) { /* already running */ }
             }
         };
         window.speechSynthesis.speak(utterance);
-    }, [lastResponse]);
-
-    // Focus input on visible
-    useEffect(() => {
-        if (isInputVisible && inputRef.current) {
-            inputRef.current.focus();
-        }
-    }, [isInputVisible]);
+    };
 
     // Speech Recognition Setup
     useEffect(() => {
-        if (typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition)) {
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            recognitionRef.current = new SpeechRecognition();
-            recognitionRef.current.continuous = false;
-            recognitionRef.current.interimResults = false;
-            recognitionRef.current.lang = 'en-US';
+        if (typeof window === 'undefined') return;
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) return;
 
-            recognitionRef.current.onresult = (event) => {
-                const transcript = event.results[0][0].transcript;
-                console.log(`[Voice Result] '${transcript}'`);
-                setInputValue(transcript);
+        recognitionRef.current = new SpeechRecognition();
+        recognitionRef.current.continuous = false;
+        recognitionRef.current.interimResults = false;
+        recognitionRef.current.lang = 'en-US';
 
-                const result = parseCommand(transcript);
-                if (onCommandRef.current) {
-                    onCommandRef.current(result, transcript);
-                    // Do not close input immediately if user wants to speak more?
-                    // Actually, for "Speak" button flow, maybe we assume one command.
-                    // But if it's the main mic button, maybe we don't even open the input?
-                    // Let's just process it.
-                    setInputValue('');
-                }
-                setIsListening(false);
-            };
+        recognitionRef.current.onresult = async (event) => {
+            const transcript = event.results[0][0].transcript;
+            setInputValue(transcript);
+            setIsListening(false);
 
-            recognitionRef.current.onerror = (event) => {
-                console.error('Speech recognition error', event.error);
-                setIsListening(false);
-            };
+            const result = parseCommand(transcript);
+            if (onCommandRef.current) {
+                const responseText = await onCommandRef.current(result, transcript);
+                setInputValue('');
+                if (responseText) speak(responseText);
+            }
+        };
 
-            recognitionRef.current.onend = () => {
-                setIsListening(false);
-            };
-        }
+        recognitionRef.current.onerror = (event) => {
+            console.error('Speech recognition error', event.error);
+            setIsListening(false);
+        };
+
+        recognitionRef.current.onend = () => setIsListening(false);
     }, []);
 
     const toggleListening = () => {
@@ -114,14 +99,16 @@ export default function CommandInput({ onCommand, lastResponse, counts, kitty })
         }
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (!inputValue.trim()) return;
 
         const result = parseCommand(inputValue);
-        onCommand(result, inputValue);
         setInputValue('');
-        setIsInputVisible(false); // Close after submit
+        setIsInputVisible(false);
+
+        const responseText = await onCommand(result, inputValue);
+        if (responseText) speak(responseText);
     };
 
     return (
@@ -181,25 +168,21 @@ export default function CommandInput({ onCommand, lastResponse, counts, kitty })
                             value={inputValue}
                             onChange={(e) => setInputValue(e.target.value)}
                             className={styles.commandInput}
-                            placeholder="e.g. Milk, Carrots..."
+                            placeholder="e.g. a carrots v 8"
                         />
 
                         <div className="flex justify-between items-center">
                             <button
                                 type="button"
                                 onClick={toggleListening}
-                                style={{ color: isListening ? '#f44336' : '#aaa' }}
+                                style={{ color: isListening ? '#4CAF50' : '#aaa' }}
                             >
                                 {isListening ? <MicOff size={24} /> : <Mic size={24} />}
                             </button>
 
-                            {/* Last Response Feedback */}
                             <span className={styles.lastResponse}>{lastResponse}</span>
 
-                            <button
-                                type="submit"
-                                style={{ color: 'var(--accent-blue)' }}
-                            >
+                            <button type="submit" style={{ color: 'var(--accent-blue)' }}>
                                 <Send size={24} />
                             </button>
                         </div>

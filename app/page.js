@@ -13,25 +13,25 @@ export default function Home() {
   const formatDate = () => new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
 
   const handleCommand = async (result, rawInput) => {
-    console.log(`[HANDLE COMMAND] Type: ${result.type}, Input: "${rawInput}", Items Count: ${items.length}`);
     setLastResponse('Processing...');
+    let response = '';
 
     if (result.type === 'START') {
       const id = await startSession();
-      setLastResponse(id ? `Shop for ${formatDate()} started. Kitty is $313` : 'Error starting shop');
+      response = id ? `Shop for ${formatDate()} started. Kitty is $313` : 'Error starting shop';
     } else if (result.type === 'ADD') {
       const { name, type, cost } = result.payload;
       const newKitty = Math.round(kitty - cost);
       const resolvedName = await addItem(name, type, cost);
-      setLastResponse(`Adding ${resolvedName || name}, kitty is $${newKitty}`);
+      response = `Adding ${resolvedName || name}, kitty is $${newKitty}`;
     } else if (result.type === 'DELETE') {
       const itemToDelete = items.find(i => i.name.toLowerCase() === result.payload.name.toLowerCase());
       const newKitty = itemToDelete ? Math.round(kitty + itemToDelete.cost) : Math.round(kitty);
       const success = await deleteItem(result.payload.name);
-      setLastResponse(success ? `Removed ${result.payload.name}, kitty is $${newKitty}` : 'Item not found');
+      response = success ? `Removed ${result.payload.name}, kitty is $${newKitty}` : 'Item not found';
     } else if (result.type === 'TOTAL') {
       const { vegetable = 0, fruit = 0, other = 0 } = counts;
-      setLastResponse(`${vegetable} vegetables, ${fruit} fruit, ${other} other. Kitty remaining $${Math.round(kitty)}`);
+      response = `${vegetable} vegetables, ${fruit} fruit, ${other} other. Kitty remaining $${Math.round(kitty)}`;
     } else if (result.type === 'CLOSE') {
       const title = `Vege Coop ${formatDate()}`;
       const textList = items.map(i => `${i.name}, ${i.type}, $${i.cost}`).join('\n');
@@ -42,29 +42,29 @@ export default function Home() {
         await closeSession(personId);
       } catch (closeErr) {
         console.error("Error closing shop:", closeErr);
-        setLastResponse('Error closing shop');
-        return;
+        response = 'Error closing shop';
+        setLastResponse(response);
+        return response;
       }
 
       if (navigator.share) {
         try {
           await navigator.share({ title, text: fullText });
-          setLastResponse('Shop closed. Share sheet opened!');
+          response = 'Shop closed.';
         } catch (err) {
           if (err.name !== 'AbortError') console.warn("Share failed", err);
-          setLastResponse('Shop closed.');
+          response = 'Shop closed.';
         }
       } else {
-        try {
-          await navigator.clipboard.writeText(fullText);
-          setLastResponse('Shop closed. List copied to clipboard!');
-        } catch {
-          setLastResponse('Shop closed.');
-        }
+        try { await navigator.clipboard.writeText(fullText); } catch { /* silent */ }
+        response = 'Shop closed. List copied to clipboard.';
       }
     } else if (result.type === 'ERROR') {
-      setLastResponse(result.message);
+      response = result.message;
     }
+
+    setLastResponse(response);
+    return response;
   };
 
   return (
