@@ -57,21 +57,22 @@
     width: 48px;
     height: 48px;
     border-radius: 50%;
-    background-color: var(--bg-secondary);
-    color: var(--text-primary);
+    background-color: #f44336;
+    color: white;
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid var(--border-color);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    border: 1px solid #f44336;
+    box-shadow: 0 4px 12px rgba(244, 67, 54, 0.3);
     cursor: pointer;
     transition: all 0.2s;
 }
 
 .micButton.listening {
-    background-color: #f44336;
+    background-color: #4CAF50;
     color: white;
-    border-color: #f44336;
+    border-color: #4CAF50;
+    box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
     animation: pulse 1.5s infinite;
 }
 
@@ -146,14 +147,14 @@
 
 @keyframes pulse {
     0% {
-        box-shadow: 0 0 0 0 rgba(244, 67, 54, 0.4);
+        box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.5);
     }
 
     70% {
-        box-shadow: 0 0 0 10px rgba(244, 67, 54, 0);
+        box-shadow: 0 0 0 10px rgba(76, 175, 80, 0);
     }
 
     100% {
-        box-shadow: 0 0 0 0 rgba(244, 67, 54, 0);
+        box-shadow: 0 0 0 0 rgba(76, 175, 80, 0);
     }
 }

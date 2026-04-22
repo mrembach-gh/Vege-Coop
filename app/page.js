@@ -10,46 +10,49 @@ export default function Home() {
   const { items, kitty, counts, startSession, addItem, deleteItem, people, personId, setPersonId, closeSession } = useShoppingSession();
   const [lastResponse, setLastResponse] = useState('Welcome to Vege Coop');
 
+  const formatDate = () => new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+
   const handleCommand = async (result, rawInput) => {
     console.log(`[HANDLE COMMAND] Type: ${result.type}, Input: "${rawInput}", Items Count: ${items.length}`);
     setLastResponse('Processing...');
 
     if (result.type === 'START') {
       const id = await startSession();
-      setLastResponse(id ? 'Shop started!' : 'Error starting shop');
+      setLastResponse(id ? `Shop for ${formatDate()} started. Kitty is $313` : 'Error starting shop');
     } else if (result.type === 'ADD') {
       const { name, type, cost } = result.payload;
-      await addItem(name, type, cost);
-      setLastResponse(`Added ${name} ($${cost})`);
+      const newKitty = Math.round(kitty - cost);
+      const resolvedName = await addItem(name, type, cost);
+      setLastResponse(`Adding ${resolvedName || name}, kitty is $${newKitty}`);
     } else if (result.type === 'DELETE') {
+      const itemToDelete = items.find(i => i.name.toLowerCase() === result.payload.name.toLowerCase());
+      const newKitty = itemToDelete ? Math.round(kitty + itemToDelete.cost) : Math.round(kitty);
       const success = await deleteItem(result.payload.name);
-      setLastResponse(success ? `Deleted ${result.payload.name}` : `Item not found`);
-    } else if (result.type === 'TOTAL' || result.type === 'CLOSE') {
-      const textList = items.map(i => `${i.name} $${i.cost}`).join('\n');
-      const summary = `Total Items: ${items.length}\nKitty Remaining: $${kitty.toFixed(2)}`;
-      const fullText = `${textList}\n\n${summary}`;
+      setLastResponse(success ? `Removed ${result.payload.name}, kitty is $${newKitty}` : 'Item not found');
+    } else if (result.type === 'TOTAL') {
+      const { vegetable = 0, fruit = 0, other = 0 } = counts;
+      setLastResponse(`${vegetable} vegetables, ${fruit} fruit, ${other} other. Kitty remaining $${Math.round(kitty)}`);
+    } else if (result.type === 'CLOSE') {
+      const textList = items.map(i => `${i.name}, ${i.type}, $${i.cost}`).join('\n');
+      const summary = `\nTotal Items: ${items.length}\nKitty Remaining: $${kitty.toFixed(2)}`;
+      const fullText = `${textList}${summary}`;
 
       try {
         await navigator.clipboard.writeText(fullText);
-        setLastResponse(result.type === 'CLOSE' ? 'Shop Closed. Copied!' : 'Copied to Clipboard!');
       } catch (err) {
         console.warn("Clipboard failed", err);
-        setLastResponse(result.type === 'CLOSE' ? 'Closed (Clipboard failed)' : 'Clipboard failed');
       }
 
-      if (result.type === 'CLOSE') {
-        try {
-          const date = new Date().toLocaleDateString();
-          const subject = `Vege Coop ${date}`;
-          setTimeout(() => {
-            const encodedBody = encodeURIComponent(fullText);
-            window.location.href = `mailto:mrembach@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodedBody}`;
-          }, 500);
-          await closeSession(personId);
-        } catch (closeErr) {
-          console.error("Error closing shop:", closeErr);
-          setLastResponse('Error closing shop');
-        }
+      try {
+        const subject = `Vege Coop ${formatDate()}`;
+        setTimeout(() => {
+          window.location.href = `mailto:mrembach@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(fullText)}`;
+        }, 800);
+        await closeSession(personId);
+        setLastResponse('Shop closed. Email ready to send.');
+      } catch (closeErr) {
+        console.error("Error closing shop:", closeErr);
+        setLastResponse('Error closing shop');
       }
     } else if (result.type === 'ERROR') {
       setLastResponse(result.message);

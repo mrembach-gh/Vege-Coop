@@ -65,6 +65,15 @@
     color: var(--text-secondary);
     display: flex;
     align-items: center;
+    gap: 8px;
+}
+
+.itemCost {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    min-width: 44px;
+    text-align: right;
 }
 
 .categoryIcon {

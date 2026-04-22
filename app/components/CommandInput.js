@@ -13,14 +13,43 @@ export default function CommandInput({ onCommand, lastResponse, counts, kitty })
     const inputRef = useRef(null);
     const recognitionRef = useRef(null);
     const onCommandRef = useRef(onCommand);
+    const isListeningRef = useRef(false);
 
     const safeCounts = counts || { vegetable: 0, fruit: 0, other: 0 };
     const totalItems = (safeCounts.vegetable || 0) + (safeCounts.fruit || 0) + (safeCounts.other || 0);
 
-    // Sync ref
+    // Sync refs
     useEffect(() => {
         onCommandRef.current = onCommand;
     }, [onCommand]);
+
+    useEffect(() => {
+        isListeningRef.current = isListening;
+    }, [isListening]);
+
+    // Speak response and pause mic while speaking
+    useEffect(() => {
+        if (!lastResponse || lastResponse === 'Welcome to Vege Coop' || lastResponse === 'Processing...') return;
+        if (typeof window === 'undefined' || !window.speechSynthesis) return;
+
+        const wasListening = isListeningRef.current;
+        if (wasListening && recognitionRef.current) {
+            recognitionRef.current.stop();
+            setIsListening(false);
+        }
+
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(lastResponse);
+        utterance.onend = () => {
+            if (wasListening && recognitionRef.current) {
+                try {
+                    recognitionRef.current.start();
+                    setIsListening(true);
+                } catch (e) { /* recognition may already be running */ }
+            }
+        };
+        window.speechSynthesis.speak(utterance);
+    }, [lastResponse]);
 
     // Focus input on visible
     useEffect(() => {

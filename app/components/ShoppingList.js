@@ -64,17 +64,15 @@ export default function ShoppingList({ items, onDelete }) {
                 {items.map((item) => (
                     <li key={item.id} className={styles.item}>
                         <div className={styles.leftSection}>
-                            {/* Checkbox Circle - Logic: Click to Delete/Check */}
                             <div
                                 className={styles.checkbox}
                                 onClick={() => onDelete(item.name)}
-                            >
-                                {/* Empty circle for unchecked */}
-                            </div>
+                            />
                             <span className={styles.itemName}>{item.name}</span>
                         </div>
                         <div className={styles.iconSection}>
                             {resolveIcon(item.type)}
+                            <span className={styles.itemCost}>${item.cost.toFixed(2)}</span>
                         </div>
                     </li>
                 ))}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
 const INITIAL_KITTY = 320;
@@ -18,6 +18,7 @@ export function useShoppingSession() {
     const [people, setPeople] = useState([]);
 
     const [isInitialized, setIsInitialized] = useState(false);
+    const shopIdRef = useRef(null);
 
     // Helper to calculate derived state from items
     const calculateState = (currentItems) => {
@@ -51,6 +52,7 @@ export function useShoppingSession() {
         const storedShopId = localStorage.getItem('vege_shop_id');
         if (storedShopId) {
             console.log("Restoring session from LocalStorage:", storedShopId);
+            shopIdRef.current = storedShopId;
             setShopId(storedShopId);
             refreshItems(storedShopId);
         }
@@ -153,12 +155,11 @@ export function useShoppingSession() {
 
         const newShopId = shop.ShopID;
         console.log("New Shop Created:", newShopId);
+        shopIdRef.current = newShopId;
         setShopId(newShopId);
         setItems([]);
 
-        // Add initial items (Parking, Trolley)
         try {
-            console.log("Adding default items...");
             await addItemToShop(newShopId, 'Parking', 'other', 2);
             await addItemToShop(newShopId, 'Trolley', 'other', 5);
         } catch (e) {
@@ -171,15 +172,13 @@ export function useShoppingSession() {
 
     // Attempt to resume or start a session
     const ensureSession = async () => {
-        if (shopId) return shopId;
-        console.log("[ENSURE] No shopId state. Checking LocalStorage manually (redundant vs useEffect but safe)...");
+        if (shopIdRef.current) return shopIdRef.current;
         const stored = localStorage.getItem('vege_shop_id');
         if (stored) {
+            shopIdRef.current = stored;
             setShopId(stored);
             return stored;
         }
-
-        console.log("[ENSURE] No existing shop found. Starting new.");
         return await startSession();
     };
 
@@ -198,6 +197,7 @@ export function useShoppingSession() {
         }
 
         // Reset local state
+        shopIdRef.current = null;
         setShopId(null);
         setItems([]);
         setKitty(INITIAL_KITTY);
@@ -221,48 +221,77 @@ export function useShoppingSession() {
         return data.ItemTypeID;
     };
 
-    const resolveOrCreateItem = async (name, typeName) => {
-        let { data: item } = await supabase.from('Item').select('ItemID').ilike('ItemName', name).maybeSingle();
+    const fuzzyMatch = (input, candidates, threshold = 0.75) => {
+        const norm = s => s.toLowerCase().trim().replace(/ies$/, 'y').replace(/es$/, '').replace(/s$/, '');
+        const ni = norm(input);
 
-        if (!item) {
-            const typeId = await resolveItemType(typeName);
-            if (!typeId) {
-                console.error(`Cannot create item '${name}': Unknown type '${typeName}'`);
-                throw new Error(`Unknown type: ${typeName}`);
-            }
+        const levenshtein = (a, b) => {
+            const dp = Array.from({ length: a.length + 1 }, (_, i) =>
+                Array.from({ length: b.length + 1 }, (_, j) => i === 0 ? j : j === 0 ? i : 0)
+            );
+            for (let i = 1; i <= a.length; i++)
+                for (let j = 1; j <= b.length; j++)
+                    dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1]
+                        : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+            return dp[a.length][b.length];
+        };
 
-            const { data: newItem, error } = await supabase
-                .from('Item')
-                .insert([{ ItemName: name, ItemTypeID: typeId }])
-                .select()
-                .single();
-
-            if (error) throw error;
-            item = newItem;
+        let best = null, bestScore = 0;
+        for (const c of candidates) {
+            const nc = norm(c.ItemName);
+            if (nc === ni) return { match: c, score: 1 };
+            const maxLen = Math.max(ni.length, nc.length);
+            const score = maxLen === 0 ? 1 : 1 - levenshtein(ni, nc) / maxLen;
+            if (score > bestScore) { bestScore = score; best = c; }
         }
-        return item.ItemID;
+        return bestScore >= threshold ? { match: best, score: bestScore } : null;
+    };
+
+    const resolveOrCreateItem = async (name, typeName) => {
+        const { data: allItems } = await supabase.from('Item').select('ItemID, ItemName');
+        const fuzzy = allItems ? fuzzyMatch(name, allItems) : null;
+
+        if (fuzzy) {
+            console.log(`Fuzzy matched '${name}' → '${fuzzy.match.ItemName}' (score: ${fuzzy.score.toFixed(2)})`);
+            return { itemId: fuzzy.match.ItemID, resolvedName: fuzzy.match.ItemName };
+        }
+
+        const typeId = await resolveItemType(typeName);
+        if (!typeId) throw new Error(`Unknown type: ${typeName}`);
+
+        const { data: newItem, error } = await supabase
+            .from('Item')
+            .insert([{ ItemName: name.toLowerCase().trim(), ItemTypeID: typeId }])
+            .select()
+            .single();
+
+        if (error) throw error;
+        return { itemId: newItem.ItemID, resolvedName: newItem.ItemName };
     };
 
     const addItemToShop = async (sId, name, type, cost) => {
-        try {
-            const itemId = await resolveOrCreateItem(name, type);
-            await supabase.from('TheShop').insert([{
-                ShopID: sId,
-                ItemID: itemId,
-                Cost: cost
-            }]);
-        } catch (e) {
-            console.error("Error adding item:", e);
-        }
+        const { itemId, resolvedName } = await resolveOrCreateItem(name, type);
+        await supabase.from('TheShop').insert([{
+            ShopID: sId,
+            ItemID: itemId,
+            Cost: cost
+        }]);
+        return resolvedName;
     };
 
     const addItem = async (name, type, cost) => {
-        let currentShopId = shopId;
+        let currentShopId = shopIdRef.current || shopId;
         if (!currentShopId) currentShopId = await ensureSession();
-        if (!currentShopId) return;
+        if (!currentShopId) return null;
 
-        await addItemToShop(currentShopId, name, type, parseFloat(cost));
-        await refreshItems(currentShopId);
+        try {
+            const resolvedName = await addItemToShop(currentShopId, name, type, parseFloat(cost));
+            await refreshItems(currentShopId);
+            return resolvedName;
+        } catch (e) {
+            console.error("Error adding item:", e);
+            return null;
+        }
     };
 
     const deleteItem = async (name) => {

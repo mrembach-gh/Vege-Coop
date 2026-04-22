@@ -5,11 +5,15 @@ const outfit = Outfit({ subsets: ['latin'] });
 
 export const metadata = {
   title: 'Vege Coop',
-  description: 'Smart Shopping Assistant',
+  description: 'Vegetable co-op shopping assistant',
+  manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
     title: 'Vege Coop',
+  },
+  icons: {
+    apple: '/icons/icon-192.png',
   },
 };
 
