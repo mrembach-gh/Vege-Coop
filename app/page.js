@@ -33,26 +33,34 @@ export default function Home() {
       const { vegetable = 0, fruit = 0, other = 0 } = counts;
       setLastResponse(`${vegetable} vegetables, ${fruit} fruit, ${other} other. Kitty remaining $${Math.round(kitty)}`);
     } else if (result.type === 'CLOSE') {
-      const textList = items.map(i => `${i.name}, ${i.type}, $${i.cost}`).join('\r\n');
-      const summary = `\r\n\r\nTotal Items: ${items.length}\r\nKitty Remaining: $${kitty.toFixed(2)}`;
-      const fullText = `${textList}${summary}`;
+      const title = `Vege Coop ${formatDate()}`;
+      const textList = items.map(i => `${i.name}, ${i.type}, $${i.cost}`).join('\n');
+      const summary = `\nTotal Items: ${items.length}\nKitty Remaining: $${kitty.toFixed(2)}`;
+      const fullText = `${title}\n\n${textList}${summary}`;
 
       try {
-        await navigator.clipboard.writeText(fullText);
-      } catch (err) {
-        console.warn("Clipboard failed", err);
-      }
-
-      try {
-        const subject = `Vege Coop ${formatDate()}`;
-        setTimeout(() => {
-          window.location.href = `mailto:mrembach@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(fullText)}`;
-        }, 800);
         await closeSession(personId);
-        setLastResponse('Shop closed. Email ready to send.');
       } catch (closeErr) {
         console.error("Error closing shop:", closeErr);
         setLastResponse('Error closing shop');
+        return;
+      }
+
+      if (navigator.share) {
+        try {
+          await navigator.share({ title, text: fullText });
+          setLastResponse('Shop closed. Share sheet opened!');
+        } catch (err) {
+          if (err.name !== 'AbortError') console.warn("Share failed", err);
+          setLastResponse('Shop closed.');
+        }
+      } else {
+        try {
+          await navigator.clipboard.writeText(fullText);
+          setLastResponse('Shop closed. List copied to clipboard!');
+        } catch {
+          setLastResponse('Shop closed.');
+        }
       }
     } else if (result.type === 'ERROR') {
       setLastResponse(result.message);
