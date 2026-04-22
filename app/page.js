@@ -33,8 +33,8 @@ export default function Home() {
       const { vegetable = 0, fruit = 0, other = 0 } = counts;
       setLastResponse(`${vegetable} vegetables, ${fruit} fruit, ${other} other. Kitty remaining $${Math.round(kitty)}`);
     } else if (result.type === 'CLOSE') {
-      const textList = items.map(i => `${i.name}, ${i.type}, $${i.cost}`).join('\n');
-      const summary = `\nTotal Items: ${items.length}\nKitty Remaining: $${kitty.toFixed(2)}`;
+      const textList = items.map(i => `${i.name}, ${i.type}, $${i.cost}`).join('\r\n');
+      const summary = `\r\n\r\nTotal Items: ${items.length}\r\nKitty Remaining: $${kitty.toFixed(2)}`;
       const fullText = `${textList}${summary}`;
 
       try {

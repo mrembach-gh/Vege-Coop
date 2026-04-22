@@ -23,7 +23,7 @@ export function parseCommand(input) {
     const parts = trimmed.split(' ');
     const command = parts[0];
 
-    if (command === 'start') {
+    if (command === 'start' || command === 's') {
         return { type: 'START' };
     }
 
