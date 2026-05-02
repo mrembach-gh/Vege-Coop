@@ -22,8 +22,12 @@ export default function Home() {
     } else if (result.type === 'ADD') {
       const { name, type, cost } = result.payload;
       const newKitty = Math.round(kitty - cost);
-      const resolvedName = await addItem(name, type, cost);
-      response = `Adding ${resolvedName || name}, kitty is $${newKitty}`;
+      const addResult = await addItem(name, type, cost);
+      if (addResult?.error) {
+        response = addResult.error;
+      } else {
+        response = `Adding ${addResult?.resolvedName || name}, kitty is $${newKitty}`;
+      }
     } else if (result.type === 'DELETE') {
       const itemToDelete = items.find(i => i.name.toLowerCase() === result.payload.name.toLowerCase());
       const newKitty = itemToDelete ? Math.round(kitty + itemToDelete.cost) : Math.round(kitty);

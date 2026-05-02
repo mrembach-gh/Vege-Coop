@@ -280,17 +280,16 @@ export function useShoppingSession() {
     };
 
     const addItem = async (name, type, cost) => {
-        let currentShopId = shopIdRef.current || shopId;
-        if (!currentShopId) currentShopId = await ensureSession();
-        if (!currentShopId) return null;
+        const currentShopId = shopIdRef.current || shopId;
+        if (!currentShopId) return { error: 'No active shop. Type start to begin.' };
 
         try {
             const resolvedName = await addItemToShop(currentShopId, name, type, parseFloat(cost));
             await refreshItems(currentShopId);
-            return resolvedName;
+            return { resolvedName };
         } catch (e) {
             console.error("Error adding item:", e);
-            return null;
+            return { error: 'Failed to add item.' };
         }
     };
 
