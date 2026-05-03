@@ -198,11 +198,13 @@ function PriceHistory({ itemId, personId }) {
 export default function ReportsPage() {
     const [activeTab, setActiveTab] = useState('activity');
     const [people, setPeople] = useState([]);
-    const [items, setItems] = useState([]);
+    const [allItems, setAllItems] = useState([]);
+    const [priceItems, setPriceItems] = useState([]);
     const [selectedPerson, setSelectedPerson] = useState('');
     const [selectedItem, setSelectedItem] = useState('');
     const [priceFilterPerson, setPriceFilterPerson] = useState('');
 
+    // Load people + all items once
     useEffect(() => {
         (async () => {
             const [{ data: p }, { data: i }] = await Promise.all([
@@ -210,9 +212,37 @@ export default function ReportsPage() {
                 supabase.from('Item').select('ItemID, ItemName').order('ItemName'),
             ]);
             if (p) setPeople(p);
-            if (i) setItems(i);
+            if (i) { setAllItems(i); setPriceItems(i); }
         })();
     }, []);
+
+    // When the shopper filter changes, narrow the item list (and clear selected item if no longer valid)
+    useEffect(() => {
+        if (!priceFilterPerson) {
+            setPriceItems(allItems);
+            return;
+        }
+        (async () => {
+            const { data: rows } = await supabase
+                .from('TheShop')
+                .select('Item:ItemID(ItemID, ItemName), Shop:ShopID(PersonID)')
+                .eq('Shop.PersonID', priceFilterPerson)
+                .not('Shop', 'is', null);
+
+            const valid = (rows || []).filter(r => r.Shop && r.Item);
+            const seen = new Map();
+            valid.forEach(r => seen.set(r.Item.ItemID, r.Item.ItemName));
+            const filtered = [...seen.entries()]
+                .map(([ItemID, ItemName]) => ({ ItemID, ItemName }))
+                .sort((a, b) => a.ItemName.localeCompare(b.ItemName));
+
+            setPriceItems(filtered);
+            // Clear selected item if it's not in the new list
+            if (selectedItem && !seen.has(Number(selectedItem))) {
+                setSelectedItem('');
+            }
+        })();
+    }, [priceFilterPerson, allItems]);
 
     return (
         <div className={styles.page}>
@@ -264,7 +294,7 @@ export default function ReportsPage() {
             {activeTab === 'price' && (
                 <div className={styles.section}>
                     <p className={styles.sectionDesc}>
-                        Select an item to see how its price has changed over time. Optionally filter by shopper.
+                        Select a shopper to filter items to what they've bought, then pick an item to see price history.
                     </p>
                     <div className={styles.filterRow}>
                         <select
@@ -273,7 +303,7 @@ export default function ReportsPage() {
                             onChange={e => setSelectedItem(e.target.value)}
                         >
                             <option value="">— Select item —</option>
-                            {items.map(i => (
+                            {priceItems.map(i => (
                                 <option key={i.ItemID} value={i.ItemID}>{i.ItemName}</option>
                             ))}
                         </select>
