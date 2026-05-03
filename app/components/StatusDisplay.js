@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Leaf, X } from 'lucide-react';
+import Link from 'next/link';
+import { Leaf, X, BarChart2 } from 'lucide-react';
 import styles from './StatusDisplay.module.css';
 
 const COMMANDS = [
@@ -44,6 +45,10 @@ export default function StatusDisplay({ people = [], selectedPersonId, onPersonC
                             ))}
                         </select>
                     </div>
+
+                    <Link href="/reports" className={styles.reportsButton} title="Reports">
+                        <BarChart2 size={16} />
+                    </Link>
 
                     <button className={styles.helpButton} onClick={() => setShowHelp(true)} title="How to use">
                         ?

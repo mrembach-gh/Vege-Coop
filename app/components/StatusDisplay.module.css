@@ -58,6 +58,27 @@
     border-color: var(--accent-green);
 }
 
+/* ── Reports button ── */
+.reportsButton {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+    text-decoration: none;
+}
+
+.reportsButton:hover {
+    border-color: var(--accent-green);
+    color: var(--accent-green);
+}
+
 /* ── Help button ── */
 .helpButton {
     width: 30px;
