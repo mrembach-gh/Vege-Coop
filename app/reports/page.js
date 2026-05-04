@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Upload, CheckCircle, AlertCircle, X } from 'lucide-react';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid,
     Tooltip, Legend, ResponsiveContainer
@@ -17,6 +17,40 @@ const SHOPPER_COLOURS = ['#4CAF50', '#2196F3', '#FF9800', '#E91E63', '#9C27B0', 
 function fmtDate(iso) {
     return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: '2-digit' });
 }
+
+// ── Fuzzy matching (mirrors useShoppingSession) ────────────────────────────────
+
+function fuzzyMatch(input, candidates, threshold = 0.75) {
+    const norm = s => s.toLowerCase().trim().replace(/ies$/, 'y').replace(/es$/, '').replace(/s$/, '');
+    const ni = norm(input);
+
+    const levenshtein = (a, b) => {
+        const dp = Array.from({ length: a.length + 1 }, (_, i) =>
+            Array.from({ length: b.length + 1 }, (_, j) => i === 0 ? j : j === 0 ? i : 0)
+        );
+        for (let i = 1; i <= a.length; i++)
+            for (let j = 1; j <= b.length; j++)
+                dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1]
+                    : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+        return dp[a.length][b.length];
+    };
+
+    let best = null, bestScore = 0;
+    for (const c of candidates) {
+        const nc = norm(c.name || c.PersonName || c.ItemName || '');
+        if (nc === ni) return { match: c, score: 1 };
+        const maxLen = Math.max(ni.length, nc.length);
+        const score = maxLen === 0 ? 1 : 1 - levenshtein(ni, nc) / maxLen;
+        if (score > bestScore) { bestScore = score; best = c; }
+    }
+    return bestScore >= threshold ? { match: best, score: bestScore } : null;
+}
+
+const TYPE_MAP = {
+    v: 'vegetable', veg: 'vegetable', vege: 'vegetable', vegetable: 'vegetable', vegetables: 'vegetable',
+    f: 'fruit', fruit: 'fruit', fruits: 'fruit',
+    o: 'other', other: 'other',
+};
 
 // ── Activity Matrix ────────────────────────────────────────────────────────────
 
@@ -38,10 +72,8 @@ function ActivityMatrix({ personId }) {
 
             if (!rows) { setLoading(false); return; }
 
-            // Filter out rows where Shop is null (Supabase returns them when PersonID doesn't match)
             const valid = rows.filter(r => r.Shop);
 
-            // Build unique shops (sorted) and unique items
             const shopMap = {};
             valid.forEach(r => {
                 const sid = r.Shop.ShopID;
@@ -138,11 +170,9 @@ function PriceHistory({ itemId, personId }) {
 
             const valid = rows.filter(r => r.Shop?.Person);
 
-            // Collect unique shoppers
             const shopperSet = [...new Set(valid.map(r => r.Shop.Person.PersonName))].sort();
             setShoppers(shopperSet);
 
-            // Build chart data: one entry per date, keyed by shopper name
             const dateMap = {};
             valid.forEach(r => {
                 const date = fmtDate(r.Shop.ShopDate);
@@ -189,6 +219,232 @@ function PriceHistory({ itemId, personId }) {
                     ))}
                 </LineChart>
             </ResponsiveContainer>
+        </div>
+    );
+}
+
+// ── Batch Upload ───────────────────────────────────────────────────────────────
+
+function BatchUpload({ people }) {
+    const [preview, setPreview] = useState(null);   // { person, rows: [{item,type,price,error}] }
+    const [uploading, setUploading] = useState(false);
+    const [result, setResult] = useState(null);     // { shopId, added, skipped }
+    const fileRef = useRef(null);
+
+    const reset = () => {
+        setPreview(null);
+        setResult(null);
+        if (fileRef.current) fileRef.current.value = '';
+    };
+
+    const handleFile = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        // Match filename (without extension) to a person
+        const rawName = file.name.replace(/\.csv$/i, '').trim();
+        const personMatch = fuzzyMatch(rawName, people.map(p => ({ ...p, name: p.PersonName })));
+        const person = personMatch ? personMatch.match : null;
+
+        // Parse CSV rows
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const lines = ev.target.result.split(/\r?\n/).filter(l => l.trim());
+            const rows = lines.map((line, idx) => {
+                const parts = line.split(',').map(s => s.trim());
+                if (parts.length < 3) return { raw: line, error: 'Expected 3 columns (Item, Type, Price)' };
+                const [item, typeRaw, priceRaw] = parts;
+                const type = TYPE_MAP[typeRaw.toLowerCase()] || null;
+                const price = parseFloat(priceRaw);
+                const error = !item ? 'Missing item name'
+                    : !type ? `Unknown type "${typeRaw}" — use v, f, or o`
+                    : isNaN(price) || price < 0 ? `Invalid price "${priceRaw}"`
+                    : null;
+                return { item, type, price, error, raw: line };
+            });
+            setPreview({ person, rawName, rows });
+            setResult(null);
+        };
+        reader.readAsText(file);
+    };
+
+    const handleUpload = async () => {
+        if (!preview?.person) return;
+        setUploading(true);
+
+        const validRows = preview.rows.filter(r => !r.error);
+
+        // Fetch all items for fuzzy matching
+        const { data: allItems } = await supabase.from('Item').select('ItemID, ItemName');
+
+        // Resolve ItemType IDs once
+        const { data: itemTypes } = await supabase.from('ItemType').select('ItemTypeID, ItemTypeName');
+        const typeIdMap = Object.fromEntries((itemTypes || []).map(t => [t.ItemTypeName, t.ItemTypeID]));
+
+        // Create the Shop record
+        const { data: shop, error: shopErr } = await supabase
+            .from('Shop')
+            .insert([{ PersonID: preview.person.PersonID, ShopDate: new Date().toISOString() }])
+            .select()
+            .single();
+
+        if (shopErr || !shop) {
+            setResult({ error: 'Failed to create shop record: ' + (shopErr?.message || 'unknown') });
+            setUploading(false);
+            return;
+        }
+
+        let added = 0, skipped = 0;
+        const rowResults = [];
+
+        for (const row of validRows) {
+            try {
+                // Resolve or create item
+                const fuzzy = allItems ? fuzzyMatch(row.item, allItems.map(i => ({ ...i, name: i.ItemName }))) : null;
+                let itemId, resolvedName;
+
+                if (fuzzy) {
+                    itemId = fuzzy.match.ItemID;
+                    resolvedName = fuzzy.match.ItemName;
+                } else {
+                    // Create new item
+                    const typeId = typeIdMap[row.type];
+                    if (!typeId) { rowResults.push({ ...row, status: 'skipped', reason: 'type not found' }); skipped++; continue; }
+                    const { data: newItem, error: itemErr } = await supabase
+                        .from('Item')
+                        .insert([{ ItemName: row.item.toLowerCase().trim(), ItemTypeID: typeId }])
+                        .select()
+                        .single();
+                    if (itemErr) { rowResults.push({ ...row, status: 'skipped', reason: itemErr.message }); skipped++; continue; }
+                    itemId = newItem.ItemID;
+                    resolvedName = newItem.ItemName;
+                    // Add to local list for subsequent rows in same file
+                    allItems.push({ ItemID: itemId, ItemName: resolvedName });
+                }
+
+                await supabase.from('TheShop').insert([{ ShopID: shop.ShopID, ItemID: itemId, Cost: row.price }]);
+                rowResults.push({ ...row, status: 'added', resolvedName });
+                added++;
+            } catch (err) {
+                rowResults.push({ ...row, status: 'skipped', reason: err.message });
+                skipped++;
+            }
+        }
+
+        setResult({ shopId: shop.ShopID, added, skipped, rowResults, person: preview.person.PersonName });
+        setUploading(false);
+    };
+
+    const validCount  = preview?.rows.filter(r => !r.error).length ?? 0;
+    const errorCount  = preview?.rows.filter(r =>  r.error).length ?? 0;
+
+    return (
+        <div className={styles.uploadSection}>
+            {!result ? (
+                <>
+                    {/* Drop zone / file picker */}
+                    <div className={styles.dropZone} onClick={() => fileRef.current?.click()}>
+                        <Upload size={28} className={styles.uploadIcon} />
+                        <p className={styles.dropLabel}>Click to choose a CSV file</p>
+                        <p className={styles.dropHint}>Filename should be the shopper's name, e.g. <code>Michael.csv</code></p>
+                        <input
+                            ref={fileRef}
+                            type="file"
+                            accept=".csv"
+                            className={styles.fileInput}
+                            onChange={handleFile}
+                        />
+                    </div>
+
+                    {/* Format reminder */}
+                    <div className={styles.formatBox}>
+                        <p className={styles.formatTitle}>CSV format — one item per row:</p>
+                        <code className={styles.formatExample}>Tomatoes, v, 4.50</code>
+                        <code className={styles.formatExample}>Apples, f, 6.00</code>
+                        <code className={styles.formatExample}>Bread, o, 3.80</code>
+                        <p className={styles.formatNote}>Type: <strong>v</strong> = vegetable &nbsp;·&nbsp; <strong>f</strong> = fruit &nbsp;·&nbsp; <strong>o</strong> = other</p>
+                    </div>
+
+                    {/* Preview */}
+                    {preview && (
+                        <div className={styles.previewBox}>
+                            {/* Person match */}
+                            <div className={preview.person ? styles.previewPerson : styles.previewPersonError}>
+                                {preview.person
+                                    ? <>✓ Shopper matched: <strong>{preview.person.PersonName}</strong></>
+                                    : <>✗ No shopper matched for "<strong>{preview.rawName}</strong>" — rename the file to a known shopper</>
+                                }
+                            </div>
+
+                            {/* Row summary */}
+                            <div className={styles.previewMeta}>
+                                {validCount} valid row{validCount !== 1 ? 's' : ''}
+                                {errorCount > 0 && <span className={styles.previewErrors}> · {errorCount} with errors (will be skipped)</span>}
+                            </div>
+
+                            {/* Row list */}
+                            <div className={styles.previewRows}>
+                                {preview.rows.map((r, i) => (
+                                    <div key={i} className={r.error ? styles.previewRowBad : styles.previewRowOk}>
+                                        <span className={styles.previewRowName}>{r.item || r.raw}</span>
+                                        {!r.error && (
+                                            <>
+                                                <span className={styles.previewRowType}>{r.type}</span>
+                                                <span className={styles.previewRowPrice}>${r.price.toFixed(2)}</span>
+                                            </>
+                                        )}
+                                        {r.error && <span className={styles.previewRowErr}>{r.error}</span>}
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Actions */}
+                            <div className={styles.previewActions}>
+                                <button className={styles.cancelBtn} onClick={reset}>Cancel</button>
+                                <button
+                                    className={styles.uploadBtn}
+                                    onClick={handleUpload}
+                                    disabled={!preview.person || validCount === 0 || uploading}
+                                >
+                                    {uploading ? 'Uploading…' : `Upload ${validCount} item${validCount !== 1 ? 's' : ''}`}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </>
+            ) : (
+                /* Result screen */
+                <div className={styles.resultBox}>
+                    {result.error ? (
+                        <div className={styles.resultError}>
+                            <AlertCircle size={32} />
+                            <p>{result.error}</p>
+                        </div>
+                    ) : (
+                        <>
+                            <div className={styles.resultSuccess}>
+                                <CheckCircle size={32} className={styles.resultIcon} />
+                                <div>
+                                    <p className={styles.resultTitle}>Shop uploaded for {result.person}</p>
+                                    <p className={styles.resultSub}>{result.added} item{result.added !== 1 ? 's' : ''} added{result.skipped > 0 ? `, ${result.skipped} skipped` : ''}</p>
+                                </div>
+                            </div>
+                            <div className={styles.previewRows}>
+                                {result.rowResults.map((r, i) => (
+                                    <div key={i} className={r.status === 'added' ? styles.previewRowOk : styles.previewRowBad}>
+                                        <span className={styles.previewRowName}>{r.resolvedName || r.item}</span>
+                                        {r.status === 'added'
+                                            ? <span className={styles.previewRowPrice}>${r.price.toFixed(2)}</span>
+                                            : <span className={styles.previewRowErr}>{r.reason}</span>
+                                        }
+                                    </div>
+                                ))}
+                            </div>
+                        </>
+                    )}
+                    <button className={styles.uploadBtn} onClick={reset}>Upload another</button>
+                </div>
+            )}
         </div>
     );
 }
@@ -268,6 +524,12 @@ export default function ReportsPage() {
                 >
                     Price History
                 </button>
+                <button
+                    className={activeTab === 'upload' ? styles.tabActive : styles.tab}
+                    onClick={() => setActiveTab('upload')}
+                >
+                    Batch Upload
+                </button>
             </div>
 
             {/* ── Shopper Activity ── */}
@@ -319,6 +581,16 @@ export default function ReportsPage() {
                         </select>
                     </div>
                     <PriceHistory itemId={selectedItem} personId={priceFilterPerson} />
+                </div>
+            )}
+
+            {/* ── Batch Upload ── */}
+            {activeTab === 'upload' && (
+                <div className={styles.section}>
+                    <p className={styles.sectionDesc}>
+                        Upload a CSV of a completed shop. Name the file after the shopper — the date will be set to today.
+                    </p>
+                    <BatchUpload people={people} />
                 </div>
             )}
         </div>
