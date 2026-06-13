@@ -449,6 +449,157 @@ function BatchUpload({ people }) {
     );
 }
 
+// ── Admin ──────────────────────────────────────────────────────────────────────
+
+const CONFIG_LABELS = {
+    trolley_cost: 'Trolley cost ($)',
+    parking_cost: 'Parking cost ($)',
+    initial_kitty: 'Kitty starting amount ($)',
+};
+
+function Admin({ people, onPeopleChanged }) {
+    const [newName, setNewName] = useState('');
+    const [personMsg, setPersonMsg] = useState(null);   // { ok, text }
+    const [config, setConfig] = useState(null);          // null = loading, [] = table missing
+    const [edits, setEdits] = useState({});
+    const [configMsg, setConfigMsg] = useState(null);
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        (async () => {
+            const { data, error } = await supabase
+                .from('Config')
+                .select('ConfigKey, ConfigValue')
+                .order('ConfigKey');
+            setConfig(error ? [] : (data || []));
+        })();
+    }, []);
+
+    const addShopper = async () => {
+        const name = newName.trim();
+        if (!name) return;
+
+        const exists = people.find(p => p.PersonName.toLowerCase() === name.toLowerCase());
+        if (exists) {
+            setPersonMsg({ ok: false, text: `"${exists.PersonName}" already exists.` });
+            return;
+        }
+
+        const { data, error } = await supabase
+            .from('Person')
+            .insert([{ PersonName: name }])
+            .select()
+            .single();
+
+        if (error) {
+            setPersonMsg({ ok: false, text: 'Failed to add: ' + error.message });
+        } else {
+            setPersonMsg({ ok: true, text: `Added shopper "${data.PersonName}".` });
+            setNewName('');
+            onPeopleChanged();
+        }
+    };
+
+    const saveConfig = async () => {
+        setSaving(true);
+        setConfigMsg(null);
+        let failed = null;
+
+        for (const [key, value] of Object.entries(edits)) {
+            const num = parseFloat(value);
+            if (isNaN(num) || num < 0) { failed = `Invalid value for ${CONFIG_LABELS[key] || key}`; break; }
+            const { error } = await supabase
+                .from('Config')
+                .update({ ConfigValue: num })
+                .eq('ConfigKey', key);
+            if (error) { failed = error.message; break; }
+        }
+
+        if (failed) {
+            setConfigMsg({ ok: false, text: failed });
+        } else {
+            setConfigMsg({ ok: true, text: 'Settings saved. They apply to the next shop started.' });
+            setConfig(config.map(c =>
+                edits[c.ConfigKey] !== undefined
+                    ? { ...c, ConfigValue: parseFloat(edits[c.ConfigKey]) }
+                    : c
+            ));
+            setEdits({});
+        }
+        setSaving(false);
+    };
+
+    return (
+        <>
+            {/* Add shopper */}
+            <div className={styles.adminCard}>
+                <h2 className={styles.adminCardTitle}>Add a shopper</h2>
+                <div className={styles.adminRow}>
+                    <input
+                        className={styles.adminInput}
+                        type="text"
+                        placeholder="Shopper name"
+                        value={newName}
+                        onChange={e => { setNewName(e.target.value); setPersonMsg(null); }}
+                        onKeyDown={e => e.key === 'Enter' && addShopper()}
+                    />
+                    <button className={styles.adminButton} onClick={addShopper} disabled={!newName.trim()}>
+                        Add
+                    </button>
+                </div>
+                {personMsg && (
+                    <p className={personMsg.ok ? styles.adminMsgOk : styles.adminMsgErr}>{personMsg.text}</p>
+                )}
+                <p className={styles.adminHint}>
+                    Current shoppers: {people.map(p => p.PersonName).join(', ')}
+                </p>
+            </div>
+
+            {/* Config */}
+            <div className={styles.adminCard}>
+                <h2 className={styles.adminCardTitle}>Standing costs</h2>
+                {config === null && <p className={styles.hint}>Loading…</p>}
+                {config !== null && config.length === 0 && (
+                    <p className={styles.adminMsgErr}>
+                        The Config table doesn't exist yet — it needs to be created once in the
+                        Supabase dashboard before these settings can be edited.
+                    </p>
+                )}
+                {config !== null && config.length > 0 && (
+                    <>
+                        {config.map(c => (
+                            <div key={c.ConfigKey} className={styles.adminRow}>
+                                <label className={styles.adminLabel}>{CONFIG_LABELS[c.ConfigKey] || c.ConfigKey}</label>
+                                <input
+                                    className={styles.adminInputSmall}
+                                    type="number"
+                                    min="0"
+                                    step="0.50"
+                                    value={edits[c.ConfigKey] ?? c.ConfigValue}
+                                    onChange={e => {
+                                        setEdits({ ...edits, [c.ConfigKey]: e.target.value });
+                                        setConfigMsg(null);
+                                    }}
+                                />
+                            </div>
+                        ))}
+                        <button
+                            className={styles.adminButton}
+                            onClick={saveConfig}
+                            disabled={Object.keys(edits).length === 0 || saving}
+                        >
+                            {saving ? 'Saving…' : 'Save changes'}
+                        </button>
+                        {configMsg && (
+                            <p className={configMsg.ok ? styles.adminMsgOk : styles.adminMsgErr}>{configMsg.text}</p>
+                        )}
+                    </>
+                )}
+            </div>
+        </>
+    );
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
@@ -460,14 +611,16 @@ export default function ReportsPage() {
     const [selectedItem, setSelectedItem] = useState('');
     const [priceFilterPerson, setPriceFilterPerson] = useState('');
 
+    const loadPeople = async () => {
+        const { data: p } = await supabase.from('Person').select('PersonID, PersonName').order('PersonName');
+        if (p) setPeople(p);
+    };
+
     // Load people + all items once
     useEffect(() => {
+        loadPeople();
         (async () => {
-            const [{ data: p }, { data: i }] = await Promise.all([
-                supabase.from('Person').select('PersonID, PersonName').order('PersonName'),
-                supabase.from('Item').select('ItemID, ItemName').order('ItemName'),
-            ]);
-            if (p) setPeople(p);
+            const { data: i } = await supabase.from('Item').select('ItemID, ItemName').order('ItemName');
             if (i) { setAllItems(i); setPriceItems(i); }
         })();
     }, []);
@@ -530,6 +683,12 @@ export default function ReportsPage() {
                 >
                     Batch Upload
                 </button>
+                <button
+                    className={activeTab === 'admin' ? styles.tabActive : styles.tab}
+                    onClick={() => setActiveTab('admin')}
+                >
+                    Admin
+                </button>
             </div>
 
             {/* ── Shopper Activity ── */}
@@ -591,6 +750,13 @@ export default function ReportsPage() {
                         Upload a CSV of a completed shop. Name the file after the shopper — the date will be set to today.
                     </p>
                     <BatchUpload people={people} />
+                </div>
+            )}
+
+            {/* ── Admin ── */}
+            {activeTab === 'admin' && (
+                <div className={styles.section}>
+                    <Admin people={people} onPeopleChanged={loadPeople} />
                 </div>
             )}
         </div>
