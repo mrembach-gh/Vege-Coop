@@ -1,0 +1,21 @@
+name: Supabase keepalive
+
+# Pings the Vege Coop Supabase project so it never hits the 7-day inactivity
+# pause. Runs on GitHub's servers, independent of any local machine.
+# The apikey is a Supabase *publishable* key — public and client-safe.
+
+on:
+  schedule:
+    - cron: "23 6 */3 * *"   # every ~3 days at 06:23 UTC (off-peak minute)
+  workflow_dispatch: {}        # allow manual runs from the Actions tab / CLI
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Vege Coop Project
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
+            "https://kudeduuszuykckmceabd.supabase.co/auth/v1/health?apikey=sb_publishable_6s-hwdZs4Cw5cPxJuBgxWw_kmiysw0s")
+          echo "Vege Coop Project -> HTTP $code"
+          test "$code" = "200"
